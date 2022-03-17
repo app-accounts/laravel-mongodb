@@ -345,6 +345,9 @@ class Builder extends BaseBuilder
                 $options = array_merge($options, $this->options);
             }
 
+            // if transaction in session
+            $options = $this->setSession($options);
+
             // Execute aggregation
             $results = iterator_to_array($this->collection->aggregate($pipeline, $options));
 
@@ -355,12 +358,12 @@ class Builder extends BaseBuilder
             // Return distinct results directly
             $column = isset($this->columns[0]) ? $this->columns[0] : '_id';
 
+            $options = [];
+            // if transaction in session
+            $options = $this->setSession($options);
+
             // Execute distinct
-            if ($wheres) {
-                $result = $this->collection->distinct($column, $wheres);
-            } else {
-                $result = $this->collection->distinct($column);
-            }
+            $result = $this->collection->distinct($column, $wheres ?: [], $options);
 
             return new Collection($result);
         } // Normal query
@@ -580,8 +583,11 @@ class Builder extends BaseBuilder
             $values = [$values];
         }
 
+        // if transaction in session
+        $options = $this->setSession();
+
         // Batch insert
-        $result = $this->collection->insertMany($values);
+        $result = $this->collection->insertMany($values, $options);
 
         return 1 == (int) $result->isAcknowledged();
     }
@@ -591,7 +597,10 @@ class Builder extends BaseBuilder
      */
     public function insertGetId(array $values, $sequence = null)
     {
-        $result = $this->collection->insertOne($values);
+        // if transaction in session
+        $options = $this->setSession();
+
+        $result = $this->collection->insertOne($values, $options);
 
         if (1 == (int) $result->isAcknowledged()) {
             if ($sequence === null) {
@@ -613,6 +622,9 @@ class Builder extends BaseBuilder
             $values = ['$set' => $values];
         }
 
+        // if transaction in session
+        $options = $this->setSession($options);
+
         return $this->performUpdate($values, $options);
     }
 
@@ -633,6 +645,9 @@ class Builder extends BaseBuilder
 
             $query->orWhereNotNull($column);
         });
+
+        // if transaction in session
+        $options = $this->setSession($options);
 
         return $this->performUpdate($query, $options);
     }
@@ -695,7 +710,11 @@ class Builder extends BaseBuilder
         }
 
         $wheres = $this->compileWheres();
-        $result = $this->collection->DeleteMany($wheres);
+        // if transaction in session
+        $options = $this->setSession();
+
+        $result = $this->collection->DeleteMany($wheres, $options);
+
         if (1 == (int) $result->isAcknowledged()) {
             return $result->getDeletedCount();
         }
@@ -720,7 +739,10 @@ class Builder extends BaseBuilder
      */
     public function truncate(): bool
     {
-        $result = $this->collection->deleteMany([]);
+        // Check if transaction exist in session
+        $options = $this->setSession();
+
+        $result = $this->collection->deleteMany($options);
 
         return 1 === (int) $result->isAcknowledged();
     }
@@ -852,6 +874,9 @@ class Builder extends BaseBuilder
         if (! array_key_exists('multiple', $options)) {
             $options['multiple'] = true;
         }
+
+        // Check if transaction exist in session
+        $options = $this->setSession($options);
 
         $wheres = $this->compileWheres();
         $result = $this->collection->UpdateMany($wheres, $query, $options);
@@ -1245,6 +1270,19 @@ class Builder extends BaseBuilder
         $this->options = $options;
 
         return $this;
+    }
+
+    /**
+     * Set session for the transaction
+     * @param $session
+     * @return mixed
+     */
+    protected function setSession($options = [])
+    {
+        if (!isset($options['session']) && ($session = $this->connection->getSession())) {
+            $options['session'] = $session;
+        }
+        return $options;
     }
 
     /**
