@@ -584,10 +584,29 @@ class Builder extends BaseBuilder
      */
     public function insertGetId(array $values, $sequence = null)
     {
+        // Since every insert gets treated like a batch insert, we will have to detect
+        // if the user is inserting a single document or an array of documents.
+        $batch = true;
+
+        foreach ($values as $value) {
+            // As soon as we find a value that is not an array we assume the user is
+            // inserting a single document.
+            if (! is_array($value)) {
+                $batch = false;
+                break;
+            }
+        }
+
         // if transaction in session
         $options = $this->setSession();
 
-        $result = $this->collection->insertOne($values, $options);
+        if ($batch) {
+            $result = $this->collection->insertMany($values, $options);
+            $id = $result->getInsertedIds();
+        } else {
+            $result = $this->collection->insertOne($values, $options);
+            $id = $result->getInsertedId();
+        }
 
         if (1 == (int) $result->isAcknowledged()) {
             if ($sequence === null) {
@@ -595,7 +614,7 @@ class Builder extends BaseBuilder
             }
 
             // Return id
-            return $sequence == '_id' ? $result->getInsertedId() : $values[$sequence];
+            return $sequence == '_id' ? $id : $values[$sequence];
         }
     }
 
